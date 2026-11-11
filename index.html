@@ -546,13 +546,26 @@
   }, {threshold:.1});
   reveals.forEach(el => obs.observe(el));
 
-  // ── VISIT TRACKING ──
+  // ── VISIT TRACKING (once per day per device) ──
   async function logVisit() {
     try {
-      await fetch(`${API}/api/visit`, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ts:Date.now()})});
+      const today = new Date().toISOString().slice(0, 10); // "YYYY-MM-DD"
+      const lastVisit = localStorage.getItem('nxl_visited');
+      if (lastVisit === today) return; // already counted today
+      await fetch(`${API}/api/visit`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ts: Date.now() }),
+      });
+      localStorage.setItem('nxl_visited', today);
     } catch {}
   }
   logVisit();
+
+  // ── KEEP-ALIVE (ping every 13 min to prevent Render sleeping) ──
+  setInterval(async () => {
+    try { await fetch(`${API}/health`); } catch {}
+  }, 13 * 60 * 1000);
 
   // ── GENERIC FORM SUBMIT ──
   async function handleForm(formEl, endpoint, btnEl, statusEl) {
@@ -627,29 +640,41 @@
   async function loadStats() {
     try {
       const r = await fetch(`${API}/api/admin/stats`, {headers:{'x-admin-pw':ADMIN_PW}});
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const d = await r.json();
-      document.getElementById('st-today').textContent    = d.today    ?? 0;
-      document.getElementById('st-yesterday').textContent= d.yesterday?? 0;
-      document.getElementById('st-week').textContent     = d.week     ?? 0;
-      document.getElementById('st-month').textContent    = d.month    ?? 0;
-      document.getElementById('st-total').textContent    = d.total    ?? 0;
-    } catch { document.getElementById('st-today').textContent='—'; }
+      document.getElementById('st-today').textContent     = d.today     ?? 0;
+      document.getElementById('st-yesterday').textContent = d.yesterday ?? 0;
+      document.getElementById('st-week').textContent      = d.week      ?? 0;
+      document.getElementById('st-month').textContent     = d.month     ?? 0;
+      document.getElementById('st-total').textContent     = d.total     ?? 0;
+    } catch (e) {
+      console.error('Stats error:', e);
+      document.getElementById('st-today').textContent = 'err';
+    }
   }
 
   async function loadRequests() {
     try {
       const r = await fetch(`${API}/api/admin/requests`, {headers:{'x-admin-pw':ADMIN_PW}});
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const data = await r.json();
       renderInbox('requests-list', data, 'request');
-    } catch { document.getElementById('requests-list').innerHTML='<p class="inbox-empty">Could not load.</p>'; }
+    } catch (e) {
+      console.error('Requests error:', e);
+      document.getElementById('requests-list').innerHTML='<p class="inbox-empty">Could not load. Check console.</p>';
+    }
   }
 
   async function loadReports() {
     try {
       const r = await fetch(`${API}/api/admin/reports`, {headers:{'x-admin-pw':ADMIN_PW}});
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const data = await r.json();
       renderInbox('reports-list', data, 'report');
-    } catch { document.getElementById('reports-list').innerHTML='<p class="inbox-empty">Could not load.</p>'; }
+    } catch (e) {
+      console.error('Reports error:', e);
+      document.getElementById('reports-list').innerHTML='<p class="inbox-empty">Could not load. Check console.</p>';
+    }
   }
 
   function renderInbox(id, items, type) {
